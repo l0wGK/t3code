@@ -1,8 +1,5 @@
 [begin] (Desktop)
-  [exec] (Terminal) {xfce4-terminal}
   [exec] (Files) {thunar}
   [exec] (Text editor) {dbus-run-session -- mousepad}
   [exec] (LibreOffice Writer) {gtk-launch t3-writer}
-  [separator]
-  [include] (/etc/X11/fluxbox/fluxbox-menu)
 [end]
