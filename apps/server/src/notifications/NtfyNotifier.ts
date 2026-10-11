@@ -34,6 +34,9 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
@@ -205,20 +208,14 @@ export const make = Effect.gen(function* () {
     const config = yield* readConfig;
     if (config === null) return;
     const body = buildNtfyMessage(config, state);
-    yield* Effect.tryPromise(async (signal) => {
-      const response = await fetch(config.server, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(SEND_TIMEOUT_MS)]),
-      });
-      if (!response.ok) {
-        throw new Error(`ntfy responded ${response.status}: ${await response.text()}`);
-      }
-    }).pipe(
+    const request = HttpClientRequest.post(config.server).pipe(
+      HttpClientRequest.bodyJsonUnsafe(body),
+      config.token ? HttpClientRequest.bearerToken(config.token) : (self) => self,
+    );
+    yield* HttpClient.HttpClient.pipe(
+      Effect.flatMap((client) => client.pipe(HttpClient.filterStatusOk).execute(request)),
+      Effect.timeout(SEND_TIMEOUT_MS),
+      Effect.provide(FetchHttpClient.layer),
       Effect.tap(() =>
         Effect.logInfo("ntfy notification sent", { threadId: state.threadId, phase: state.phase }),
       ),

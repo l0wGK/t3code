@@ -76,6 +76,7 @@ import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
+import * as DesktopViewerProxy from "./desktop/DesktopViewerProxy.ts";
 import { deviceHubProxyRouteLayer } from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -611,6 +612,8 @@ export const makeRoutesLayer = Layer.mergeAll(
     assetRouteLayer,
     attachmentUploadRouteLayer,
     deviceHubProxyRouteLayer,
+    // Fork addition: noVNC viewer for the machine's GUI desktop, configured by <stateDir>/desktop.json.
+    DesktopViewerProxy.layer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),

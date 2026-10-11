@@ -87,7 +87,7 @@ const isWebSocketUpgrade = (request: HttpServerRequest.HttpServerRequest) =>
  * bearer and DPoP clients. The upgrade authenticator already implements that
  * fallback order, so it is used for plain requests as well.
  */
-const authenticate = (requiredScope: AuthEnvironmentScope) =>
+export const authenticate = (requiredScope: AuthEnvironmentScope) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
