@@ -47,11 +47,18 @@ const STATUS_LABELS: Record<ViewerStatus, string> = {
 /** Messages from the viewer page; see apps/server/src/desktop/viewerPage.ts. */
 function readViewerMessage(
   data: unknown,
-): { type: "status"; state: ViewerState } | { type: "request-session" } | null {
+):
+  | { type: "status"; state: ViewerState }
+  | { type: "request-session" }
+  | { type: "clipboard"; text: string }
+  | null {
   if (typeof data !== "object" || data === null) return null;
   const message = data as Record<string, unknown>;
   if (message.source !== "t3-desktop-viewer") return null;
   if (message.type === "request-session") return { type: "request-session" };
+  if (message.type === "clipboard" && typeof message.text === "string") {
+    return { type: "clipboard", text: message.text };
+  }
   if (message.type !== "status" || typeof message.status !== "string") return null;
   if (!(message.status in STATUS_LABELS)) return null;
   return {
@@ -135,6 +142,9 @@ export function DesktopPanel(props: {
       const message = readViewerMessage(event.data);
       if (message === null) return;
       if (message.type === "request-session") newSession();
+      // The frame copies too, but a plain-HTTP frame may lack clipboard access.
+      else if (message.type === "clipboard")
+        void navigator.clipboard?.writeText(message.text).catch(() => {});
       else setViewer((previous) => ({ ...previous, ...message.state }));
     };
     window.addEventListener("message", onMessage);
