@@ -6,6 +6,8 @@
 #   ~/desktop.sh release N        Give desktop N back when the task is done.
 #   ~/desktop.sh open N <url>     Open a URL in desktop N's Firefox (and keep the claim fresh).
 #   ~/desktop.sh doc N <file>     Open a document in LibreOffice on desktop N (and keep the claim fresh).
+#   ~/desktop.sh shot N <file.png> [x,y,w,h] [scale]
+#                                 Screenshot desktop N, or just a region, optionally enlarged (2 = 2x).
 #   ~/desktop.sh status           Show which desktops are claimed, by what, and since when.
 #   ~/desktop.sh refresh N        Restart desktop N's Firefox with desktop 1's current sign-ins.
 #   ~/desktop.sh [url]            Old form: open a URL on desktop 1.
@@ -102,6 +104,22 @@ case "${1:-}" in
     [ -e "$CLAIMS/$2" ] && touch "$CLAIMS/$2"
     open_doc "$2" "$(realpath "$3")"
     ;;
+  shot)
+    valid "${2:-}"
+    file="${3:-}"
+    region="${4:-}"
+    scale="${5:-1}"
+    [[ "$file" == *.png && ( -z "$region" || "$region" =~ ^[0-9]+,[0-9]+,[0-9]+,[0-9]+$ ) && "$scale" =~ ^[1-4]$ ]] ||
+      { echo "usage: $0 shot N <file.png> [x,y,w,h] [scale 1-4]" >&2; exit 2; }
+    [ -e "$CLAIMS/$2" ] && touch "$CLAIMS/$2"
+    DISPLAY=":$2" scrot -o ${region:+-a "$region"} "$file"
+    if [ "$scale" -gt 1 ]; then
+      python3 -c 'import sys; from PIL import Image
+im = Image.open(sys.argv[1]); s = int(sys.argv[2])
+im.resize((im.width * s, im.height * s), Image.LANCZOS).save(sys.argv[1])' "$file" "$scale"
+    fi
+    echo "$file"
+    ;;
   refresh)
     valid "${2:-}"
     refresh "$2"
@@ -116,7 +134,7 @@ case "${1:-}" in
     done
     ;;
   -h | --help)
-    sed -n '2,18p' "$0"
+    sed -n '2,20p' "$0"
     ;;
   *)
     ensure 1
