@@ -48,6 +48,41 @@ EOF
   firefox_args=(--profile "$profile")
 fi
 
+# Desktops 2 and up start Firefox with a copy of desktop 1's cookies, so sites
+# signed in on desktop 1 are signed in here too; sign-ins made here are replaced
+# on the next start (desktop.sh restarts Firefox when a desktop is claimed).
+# Firefox holds its cookie database locked, so copy the raw files and keep the
+# copy only if it passes an integrity check (a write may land mid-copy).
+copy_signins() {
+  local main source tmp
+  main=$(sed -n 's/^Default=//p' "$HOME/.config/mozilla/firefox/installs.ini" | head -n 1)
+  source="$HOME/.config/mozilla/firefox/$main"
+  [ -n "$main" ] && [ -f "$source/cookies.sqlite" ] || return 0
+  tmp="$profile/.signin-copy"
+  for _ in 1 2 3; do
+    rm -rf "$tmp" && mkdir -m 700 "$tmp"
+    cp "$source/cookies.sqlite" "$tmp/" && { [ ! -f "$source/cookies.sqlite-wal" ] ||
+      cp "$source/cookies.sqlite-wal" "$tmp/"; } || continue
+    if node -e '
+      const { DatabaseSync } = require("node:sqlite");
+      const [dir] = process.argv.slice(1);
+      const db = new DatabaseSync(`${dir}/cookies.sqlite`);
+      if (db.prepare("pragma integrity_check").get().integrity_check !== "ok") process.exit(1);
+      db.exec(`vacuum into '"'"'${dir}/clean.sqlite'"'"'`);
+    ' "$tmp" 2>/dev/null; then
+      rm -f "$profile"/cookies.sqlite*
+      mv "$tmp/clean.sqlite" "$profile/cookies.sqlite"
+      break
+    fi
+  done
+  rm -rf "$tmp"
+}
+
+start_firefox() {
+  [ "$n" -ne 1 ] && copy_signins
+  firefox "${firefox_args[@]}"
+}
+
 rm -f "/tmp/.X$n-lock" "/tmp/.X11-unix/X$n"
 # TigerVNC's Xvnc is both the X server and the VNC server. Unlike x11vnc it
 # syncs the clipboard as UTF-8 (noVNC's extended clipboard), and only the real
@@ -69,7 +104,7 @@ listen=127.0.0.1
 supervise websockify 1 websockify --web /usr/share/novnc "$listen:$((6079 + n))" \
   "127.0.0.1:$((5900 + n))" >>"$log-websockify.log" 2>&1 &
 # Agents and the panel expect a browser on the desktop; bring it back if closed.
-supervise firefox 3 firefox "${firefox_args[@]}" >>"$log-firefox.log" 2>&1 &
+supervise firefox 3 start_firefox >>"$log-firefox.log" 2>&1 &
 
 # The desktop lives as long as the X server; the service restarts it if it dies.
 wait "$xserver"

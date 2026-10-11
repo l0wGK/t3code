@@ -6,10 +6,13 @@
 #   ~/desktop.sh release N        Give desktop N back when the task is done.
 #   ~/desktop.sh open N <url>     Open a URL in desktop N's Firefox (and keep the claim fresh).
 #   ~/desktop.sh status           Show which desktops are claimed, by what, and since when.
+#   ~/desktop.sh refresh N        Restart desktop N's Firefox with desktop 1's current sign-ins.
 #   ~/desktop.sh [url]            Old form: open a URL on desktop 1.
 #
-# Run GUI commands for desktop N with DISPLAY=:N. A claim not used (claim/open)
-# for three hours is considered abandoned and can be claimed again.
+# Desktop 1 holds the sign-ins: desktops 2 and up get a copy of its cookies
+# whenever they're claimed. Run GUI commands for desktop N with DISPLAY=:N.
+# A claim not used (claim/open) for three hours is considered abandoned and can
+# be claimed again.
 # Viewer: the T3 Desktop panel (switch desktops with 1/2/3), or desktop 1 at
 # http://<host>:6080/vnc.html on the LAN.
 set -u
@@ -32,6 +35,25 @@ valid() {
   exit 2
 }
 
+# Restarts Firefox on desktop N (2 and up); the service copies desktop 1's
+# sign-ins before starting it again. Only Firefox in that desktop's unit is touched.
+refresh() {
+  local cgroup pid old=""
+  [ "$1" -ne 1 ] || return 0
+  ensure "$1"
+  cgroup="/sys/fs/cgroup$(systemctl --user show -p ControlGroup --value "$(unit "$1")")"
+  for pid in $(cat "$cgroup/cgroup.procs" 2>/dev/null); do
+    [ "$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | cut -d' ' -f1)" = firefox ] && old="$pid"
+  done
+  [ -n "$old" ] && kill "$old"
+  for _ in $(seq 1 100); do
+    sleep 0.2
+    [ -n "$old" ] && [ -e "/proc/$old" ] && continue
+    DISPLAY=":$1" wmctrl -l 2>/dev/null | grep -q 'Mozilla Firefox' && return 0
+  done
+  echo "Firefox on desktop $1 didn't come back within 20 seconds" >&2
+}
+
 open_url() {
   local profile=()
   [ "$1" -ne 1 ] && profile=(--profile "$HOME/.config/mozilla/firefox/desktop-$1")
@@ -46,6 +68,7 @@ case "${1:-}" in
     for d in "${DESKTOPS[@]}"; do
       if (set -o noclobber; printf '%s\n' "$label" >"$CLAIMS/$d") 2>/dev/null; then
         ensure "$d"
+        refresh "$d"
         echo "$d"
         exit 0
       fi
@@ -64,6 +87,10 @@ case "${1:-}" in
     [ -e "$CLAIMS/$2" ] && touch "$CLAIMS/$2"
     open_url "$2" "$3"
     ;;
+  refresh)
+    valid "${2:-}"
+    refresh "$2"
+    ;;
   status)
     for d in "${DESKTOPS[@]}"; do
       if [ -e "$CLAIMS/$d" ]; then
@@ -74,7 +101,7 @@ case "${1:-}" in
     done
     ;;
   -h | --help)
-    sed -n '2,15p' "$0"
+    sed -n '2,17p' "$0"
     ;;
   *)
     ensure 1

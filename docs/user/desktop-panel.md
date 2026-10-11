@@ -11,8 +11,9 @@ that lasts eight hours. Choose **Reconnect** after a disconnect or an expired se
 
 When the server has several desktops, switch between them with the **1 2 3** buttons in the
 panel's toolbar. The panel remembers your choice per environment. Each desktop is separate,
-with its own browser and sign-ins, so agents working at the same time don't get in each other's
-way.
+with its own browser, so agents working at the same time don't get in each other's way. Watching
+or switching doesn't affect an agent; turn on **View only** so a stray click or keystroke can't
+either.
 
 **Pop out** opens the viewer in its own window. **Cmd+V** (Ctrl+V off macOS) pastes your
 clipboard into the desktop, and text you copy there with Cmd/Ctrl+C or X comes back to your
