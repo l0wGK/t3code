@@ -9,6 +9,7 @@ Files that run this fork on its Linux host, kept here so the setup can be rebuil
 | `desktop.sh`                                                | `~/desktop.sh`            | For agents: `claim`/`release` a desktop so parallel threads never share one, `open N <url>`, `status`. See its header.                                                                                                                                                                   |
 | `tint2rc`                                                   | `~/.config/tint2/tint2rc` | The taskbar.                                                                                                                                                                                                                                                                             |
 | `fluxbox/apps`, `fluxbox/overlay`, `fluxbox/init-settings`  | `~/.fluxbox/`             | Firefox maximized without a window-manager title bar; dark style; gradient wallpaper. Merge `init-settings` into `~/.fluxbox/init`.                                                                                                                                                      |
+| `nas.sh`                                                    | `~/nas.sh`                | For agents: list and add files on an SMB share (never overwrites or deletes) without seeing its password. The user runs `nas.sh setup //<host>/<share>` once; it asks for the account in a dialog on desktop 1.                                                                          |
 | `build-server-runtime.sh`                                   | anywhere                  | Builds a server runtime archive: `build-server-runtime.sh 0.0.45+l0wgk.N`. Needs Node 26.8.2 at `~/.local/share/node-v26.8.2`.                                                                                                                                                           |
 | `switch-runtime.sh`                                         | `~/.t3/runtime/`          | Switches the service to an installed runtime, health-checks it, and rolls back if it fails. Run it via `systemd-run --user --on-active=120s …`, because restarting the server stops agents running inside it.                                                                            |
 
@@ -16,7 +17,8 @@ Files that run this fork on its Linux host, kept here so the setup can be rebuil
 
 ```sh
 sudo apt-get install -y tigervnc-standalone-server tigervnc-tools novnc websockify fluxbox tint2 firefox xdotool scrot xclip wmctrl \
-  libreoffice-writer libreoffice-gtk3 fonts-crosextra-carlito fonts-crosextra-caladea hunspell-sv hunspell-en-us
+  libreoffice-writer libreoffice-gtk3 fonts-crosextra-carlito fonts-crosextra-caladea hunspell-sv hunspell-en-us \
+  smbclient zenity
 vncpasswd ~/.vnc/passwd            # the password goes in <stateDir>/desktop.json as vncPassword
 cp desktop-service.sh desktop.sh ~/ && cp tint2rc ~/.config/tint2/
 cp systemd/t3-desktop.service ~/.config/systemd/user/
