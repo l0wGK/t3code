@@ -5,11 +5,16 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/l0wGK/t3code/live/scripts/fork/build-mac-app.sh | bash
 #
+# raw.githubusercontent.com caches a branch URL for about five minutes, so
+# right after a push it can serve the previous script. Agents should fetch by
+# commit instead: …/l0wGK/t3code/<commit-sha>/scripts/fork/build-mac-app.sh
+#
 # The build is unsigned and has no update feed, so it never replaces itself
 # with an official release. Rerun the command to rebuild after fork changes.
 #
 # T3_FORK_SKIP_INSTALL=1 builds without touching /Applications and prints the
-# install command instead, for agents running inside the app being replaced.
+# install command instead. The install step also refuses to quit or replace
+# the app when this script runs inside it (an agent hosted by that app).
 set -euo pipefail
 
 REPO_URL="${T3_FORK_REPO:-https://github.com/l0wGK/t3code.git}"
@@ -40,7 +45,18 @@ if ! command -v cargo >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
   curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
 fi
 export PATH="$HOME/.cargo/bin:$PATH"
-rustup target add "$RUST_TARGET" >/dev/null
+# The resource monitor's dependencies need a recent stable (sysinfo needs 1.95).
+# Build with stable explicitly rather than changing your default toolchain.
+MIN_RUST_MINOR=95
+rustup toolchain install stable --profile minimal --no-self-update >/dev/null
+export RUSTUP_TOOLCHAIN=stable
+rust_minor="$(rustc --version | sed -E 's/^rustc 1\.([0-9]+).*/\1/')"
+if [ "${rust_minor:-0}" -lt "$MIN_RUST_MINOR" ]; then
+  rustup update stable --no-self-update >/dev/null
+  rust_minor="$(rustc --version | sed -E 's/^rustc 1\.([0-9]+).*/\1/')"
+fi
+[ "${rust_minor:-0}" -ge "$MIN_RUST_MINOR" ] || die "Rust 1.$MIN_RUST_MINOR or newer is required; found $(rustc --version)."
+rustup target add --toolchain stable "$RUST_TARGET" >/dev/null
 
 step "Checking Node $NODE_VERSION (private copy, does not touch any Node you have)"
 NODE_DIR="$HOME/.local/share/node-v$NODE_VERSION"
@@ -86,13 +102,19 @@ VERSION="$(cat scripts/fork/VERSION)"
 step "Building T3 Code $VERSION for $ARCH (this takes a while)"
 # T3 Connect uses the same public identifiers as official builds.
 cp .env.example .env
-node scripts/update-release-package-versions.ts "$VERSION" >/dev/null
 export CI=true NODE_OPTIONS=--max-old-space-size=6144
+# Install first: the version script imports workspace dependencies.
 vp i
+node scripts/update-release-package-versions.ts "$VERSION" >/dev/null
 rm -rf release
 node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch "$ARCH" --build-version "$VERSION"
 git checkout --quiet -- apps/desktop/package.json apps/server/package.json apps/web/package.json packages/contracts/package.json
 
+# The artifact script copies only files out of its temporary stage, so the
+# .app is only inside the zip.
+ZIP="$(find release -maxdepth 1 -name '*.zip' | head -1)"
+[ -n "$ZIP" ] || die "Build finished but no zip was found under $SRC/release."
+ditto -x -k "$ZIP" "release/mac-$ARCH"
 APP="$(find release -maxdepth 2 -name '*.app' -type d | head -1)"
 [ -n "$APP" ] || die "Build finished but no .app was found under $SRC/release."
 APP_NAME="$(basename "$APP" .app)"
@@ -108,17 +130,7 @@ if [ "${T3_FORK_SKIP_INSTALL:-0}" = "1" ]; then
 fi
 
 step "Installing $APP_NAME to /Applications"
-osascript -e "quit app \"$APP_NAME\"" >/dev/null 2>&1 || true
-sleep 2
-if [ -d "$TARGET" ]; then
-  backup="$HOME/$APP_NAME (previous).zip"
-  rm -f "$backup"
-  ditto -c -k --keepParent "$TARGET" "$backup"
-  rm -rf "$TARGET"
-  echo "Previous app backed up to: $backup"
-fi
-ditto "$APP" "$TARGET"
-open "$TARGET"
+bash "$SRC/scripts/fork/install-mac-app.sh" "$APP_ABS"
 
 step "Done: $APP_NAME $VERSION is installed and running."
 echo "To go back to the official app, download it from https://t3.codes or unzip the backup above into /Applications."
