@@ -95,6 +95,7 @@ import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import * as ThreadPullRequestReactor from "./orchestration/ThreadPullRequestReactor.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
+import * as NtfyNotifier from "./notifications/NtfyNotifier.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -273,6 +274,8 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(PullRequestSyncReactor.layer),
   Layer.provideMerge(ThreadPullRequestReactor.layer),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+  // Fork addition: ntfy push notifications, configured by <stateDir>/ntfy.json.
+  Layer.provideMerge(NtfyNotifier.layerStarted),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
