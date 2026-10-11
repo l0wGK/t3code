@@ -48,10 +48,15 @@ describe("desktopViewerLocation", () => {
   it("routes the WebSocket through the session and keeps the password in the fragment", () => {
     const location = desktopViewerLocation("tok", "p&w");
     const url = new URL(location, "https://example.test");
-    assert.strictEqual(url.pathname, "/api/desktop/s/tok/vnc_lite.html");
+    assert.strictEqual(url.pathname, "/api/desktop/s/tok/t3-viewer.html");
     assert.strictEqual(url.searchParams.get("path"), "api/desktop/s/tok/websockify");
     assert.strictEqual(url.searchParams.get("password"), null);
     assert.strictEqual(url.hash, "#&password=p%26w");
+  });
+
+  it("passes a theme through when given", () => {
+    const url = new URL(desktopViewerLocation("tok", null, "light"), "https://example.test");
+    assert.strictEqual(url.searchParams.get("theme"), "light");
   });
 
   it("omits the fragment without a password", () => {

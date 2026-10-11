@@ -40,6 +40,7 @@ import {
   timingSafeEqualBase64Url,
 } from "../auth/utils.ts";
 import * as ServerConfig from "../config.ts";
+import { DESKTOP_VIEWER_PAGE, desktopViewerHtml } from "./viewerPage.ts";
 import { authenticate as authenticateMediaRequest } from "../device/DeviceHubProxy.ts";
 
 export const DESKTOP_ROUTE_PREFIX = "/api/desktop";
@@ -103,22 +104,24 @@ export function verifyDesktopSessionToken(
 }
 
 /**
- * The noVNC page for a session, with its WebSocket routed back through the
- * session prefix. `vnc_lite.html` keeps no settings in storage, so it runs in a
- * sandboxed (opaque-origin) frame. The password rides in the fragment, which
- * never reaches the server.
+ * The viewer page for a session, with its WebSocket routed back through the
+ * session prefix. The page runs in a sandboxed (opaque-origin) frame. The
+ * password rides in the fragment, which never reaches the server.
  */
-export function desktopViewerLocation(token: string, vncPassword: string | null): string {
+export function desktopViewerLocation(
+  token: string,
+  vncPassword: string | null,
+  theme: "light" | "dark" | null = null,
+): string {
   const sessionPath = `${SESSION_PATH_PREFIX}${token}`;
   const params = new URLSearchParams({
-    scale: "1",
-    // noVNC joins `path` onto the page's host, without a leading slash.
+    // The page joins `path` onto its host, without a leading slash.
     path: `${sessionPath.slice(1)}${WEBSOCKET_PATH}`,
   });
-  // vnc_lite only reads a variable that follows `?` or `&`, even in the fragment.
+  if (theme !== null) params.set("theme", theme);
   const fragment =
     vncPassword === null ? "" : `#&${new URLSearchParams({ password: vncPassword }).toString()}`;
-  return `${sessionPath}/vnc_lite.html?${params.toString()}${fragment}`;
+  return `${sessionPath}${DESKTOP_VIEWER_PAGE}?${params.toString()}${fragment}`;
 }
 
 /** Splits `/api/desktop/s/<token>/<rest>` into its token and upstream path. */
@@ -131,6 +134,9 @@ export function parseDesktopSessionPath(
   if (slash <= 0) return null;
   return { token: remainder.slice(0, slash), upstreamPath: remainder.slice(slash) };
 }
+
+const parseTheme = (value: string | null): "light" | "dark" | null =>
+  value === "light" || value === "dark" ? value : null;
 
 const isWebSocketUpgrade = (request: HttpServerRequest.HttpServerRequest) =>
   request.headers.upgrade?.toLowerCase() === "websocket";
@@ -218,7 +224,11 @@ const handler = Effect.gen(function* () {
     }
     yield* authenticateMediaRequest(AuthOrchestrationOperateScope);
     return HttpServerResponse.redirect(
-      desktopViewerLocation(makeDesktopSessionToken(nowMs, secret), config.vncPassword),
+      desktopViewerLocation(
+        makeDesktopSessionToken(nowMs, secret),
+        config.vncPassword,
+        parseTheme(url.value.searchParams.get("theme")),
+      ),
       { status: 302, headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" } },
     );
   }
@@ -241,6 +251,12 @@ const handler = Effect.gen(function* () {
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
     return HttpServerResponse.text("Method Not Allowed", { status: 405 });
+  }
+  if (session.upstreamPath === DESKTOP_VIEWER_PAGE) {
+    return HttpServerResponse.text(desktopViewerHtml(), {
+      contentType: "text/html; charset=utf-8",
+      headers: { "cache-control": "private, no-store", "referrer-policy": "no-referrer" },
+    });
   }
   if (!STATIC_PATH.test(session.upstreamPath)) {
     return HttpServerResponse.text("Not Found", { status: 404 });

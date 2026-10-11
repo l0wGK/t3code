@@ -1,0 +1,94 @@
+# Fork addition: builds the macOS desktop app from `live` and publishes it as
+# a GitHub release. Installed fork builds find these releases through
+# apps/desktop/src/updates/ForkMacUpdater.ts and update themselves in-app.
+name: Fork Mac app release
+
+on:
+  push:
+    branches: [live]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-mac-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CI: "true"
+      NODE_OPTIONS: --max-old-space-size=6144
+      # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
+      VP_NODE_VERSION: "26.8.2"
+      RUSTUP_TOOLCHAIN: stable
+      # Bakes app-update.yml (owner/repo) into the app, which turns on updates.
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          base="$(sed 's/+.*//' scripts/fork/VERSION)"
+          # Build 1 was the first hand-built app; CI builds count up from 2.
+          build=$(( ${{ github.run_number }} + 1 ))
+          echo "version=${base}+l0wgk.${build}" >> "$GITHUB_OUTPUT"
+          echo "build=${build}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.8.2"
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add --toolchain stable aarch64-apple-darwin
+          rustc --version
+
+      - name: Install vp
+        run: |
+          curl -fsSL https://vite.plus | bash
+          echo "$HOME/.vite-plus/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/vite-plus/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: |
+          # T3 Connect uses the same public identifiers as official builds.
+          cp .env.example .env
+          vp i
+
+      - name: Build app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/update-release-package-versions.ts "$VERSION"
+          node scripts/build-desktop-artifact.ts --platform mac --target zip --arch arm64 --build-version "$VERSION"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          zip="$(find release -maxdepth 1 -name '*.zip' | head -1)"
+          [ -n "$zip" ] || { echo "No zip was built." >&2; exit 1; }
+          asset="T3-Code-mac-arm64.zip"
+          mkdir -p dist-release
+          cp "$zip" "dist-release/$asset"
+          sha="$(shasum -a 256 "dist-release/$asset" | awk '{ print $1 }')"
+          manifest="$(printf '{"version":"%s","assets":{"arm64":{"name":"%s","sha256":"%s"}}}' "$VERSION" "$asset" "$sha")"
+          notes="$(printf 'T3 Code fork %s, built from %s.\n\nInstalled fork apps update to this release from the in-app update button.\n\n<!-- fork-update %s -->' "$VERSION" "${GITHUB_SHA::7}" "$manifest")"
+          gh release create "fork-mac-$BUILD" "dist-release/$asset" \
+            --target "$GITHUB_SHA" \
+            --title "T3 Code fork $VERSION" \
+            --notes "$notes"

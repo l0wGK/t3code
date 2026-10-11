@@ -103,6 +103,8 @@ step "Building T3 Code $VERSION for $ARCH (this takes a while)"
 # T3 Connect uses the same public identifiers as official builds.
 cp .env.example .env
 export CI=true NODE_OPTIONS=--max-old-space-size=6144
+# Bakes app-update.yml into the app so it can update itself from the fork's releases.
+export T3CODE_DESKTOP_UPDATE_REPOSITORY=l0wGK/t3code
 # Install first: the version script imports workspace dependencies.
 vp i
 node scripts/update-release-package-versions.ts "$VERSION" >/dev/null
