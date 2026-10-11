@@ -36,3 +36,10 @@ tar -xzf /tmp/release-cli/t3-0.0.45+l0wgk.N-linux-x64.tar.gz -C /tmp/rt && \
   echo 0.0.45+l0wgk.N > ~/.t3/runtime/versions/0.0.45+l0wgk.N/.install-complete
 systemd-run --user --on-active=120s ~/.t3/runtime/switch-runtime.sh 0.0.45+l0wgk.N <current version>
 ```
+
+To switch only once no thread has a turn running (agents mid-task would be stopped), install
+`switch-when-idle.sh` next to `switch-runtime.sh` and run it instead:
+
+```sh
+systemd-run --user --unit=t3-switch-when-idle ~/.t3/runtime/switch-when-idle.sh 0.0.45+l0wgk.N <current version>
+```
