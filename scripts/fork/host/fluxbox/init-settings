@@ -1,0 +1,3 @@
+session.styleFile: /usr/share/fluxbox/styles/ubuntu-dark
+session.screen0.toolbar.visible: false
+session.screen0.rootCommand: fbsetroot -gradient "Vertical Gradient" -from "#23252f" -to "#0e0f13"

@@ -1,0 +1,2 @@
+! Keep the style from setting a wallpaper; rootCommand in init sets the gradient.
+background: none

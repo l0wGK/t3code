@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+      - "scripts/fork/host/**"
   workflow_dispatch:
 
 permissions:
