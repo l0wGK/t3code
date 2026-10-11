@@ -1,7 +1,7 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { DeviceHubAccess } from "@t3tools/client-runtime/state/deviceHubAccess";
-import { Eye, EyeOff, ExternalLink, Keyboard, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Eye, EyeOff, Keyboard, PictureInPicture2, RotateCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -23,6 +23,8 @@ export function desktopOpenUrl(access: DeviceHubAccess, theme?: ThemeAppearance)
   if (theme) url.searchParams.set("theme", theme);
   return url.toString();
 }
+
+const POPOUT_TICKET_REFRESH_MS = 4 * 60_000;
 
 type ViewerStatus = "connecting" | "reconnecting" | "connected" | "disconnected" | "error";
 
@@ -90,11 +92,35 @@ export function DesktopPanel(props: {
   }, [props.environmentId, reloadCount]);
 
   const freshAccess = access !== null && access !== staleAccessRef.current ? access : null;
-  const src = freshAccess ? desktopOpenUrl(freshAccess, initialTheme) : null;
+  // The frame keeps the URL it opened with; refreshed tickets only serve pop-outs.
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (src === null && freshAccess !== null) setSrc(desktopOpenUrl(freshAccess, initialTheme));
+  }, [src, freshAccess, initialTheme]);
+
+  // Media tickets last five minutes, and a pop-out must open synchronously from
+  // the click (Safari blocks later window.open calls), so keep one fresh.
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => refreshDeviceHubAccess(props.environmentId),
+      POPOUT_TICKET_REFRESH_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [props.environmentId]);
+
+  const popOut = () => {
+    if (freshAccess === null) return;
+    window.open(
+      desktopOpenUrl(freshAccess, resolvedTheme),
+      "_blank",
+      "popup,width=1280,height=828,noopener,noreferrer",
+    );
+  };
 
   // A new session needs a fresh ticket, which also remounts the frame.
   const newSession = useCallback(() => {
     staleAccessRef.current = access;
+    setSrc(null);
     setViewer({ status: "connecting" });
     setReloadCount((count) => count + 1);
   }, [access]);
@@ -154,16 +180,9 @@ export function DesktopPanel(props: {
         <ToolbarButton label="Reconnect" onClick={newSession}>
           <RotateCw />
         </ToolbarButton>
-        {src ? (
-          <ToolbarButton
-            label="Open in a new window"
-            render={<a href={src} target="_blank" rel="noreferrer" />}
-            // The link's ticket is spent by the new window; mint the next one.
-            onClick={newSession}
-          >
-            <ExternalLink />
-          </ToolbarButton>
-        ) : null}
+        <ToolbarButton label="Pop out" disabled={freshAccess === null} onClick={popOut}>
+          <PictureInPicture2 />
+        </ToolbarButton>
       </div>
       <div className="bg-muted/40 relative min-h-0 flex-1">
         {props.visible && src ? (
@@ -218,7 +237,6 @@ function ToolbarButton(props: {
   readonly children: ReactNode;
   readonly pressed?: boolean;
   readonly disabled?: boolean;
-  readonly render?: ReactElement;
 }) {
   return (
     <Tooltip>
@@ -230,7 +248,6 @@ function ToolbarButton(props: {
             aria-label={props.label}
             {...(props.pressed !== undefined ? { "aria-pressed": props.pressed } : {})}
             {...(props.disabled ? { disabled: true } : {})}
-            {...(props.render ? { render: props.render } : {})}
             className={cn("[&_svg]:size-3.5", props.pressed && "bg-accent text-accent-foreground")}
             onClick={props.onClick}
           />
