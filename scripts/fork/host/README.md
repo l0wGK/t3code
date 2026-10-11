@@ -15,7 +15,8 @@ Files that run this fork on its Linux host, kept here so the setup can be rebuil
 ## First-time setup
 
 ```sh
-sudo apt-get install -y tigervnc-standalone-server tigervnc-tools novnc websockify fluxbox tint2 firefox xdotool scrot xclip wmctrl
+sudo apt-get install -y tigervnc-standalone-server tigervnc-tools novnc websockify fluxbox tint2 firefox xdotool scrot xclip wmctrl \
+  libreoffice-writer libreoffice-gtk3 fonts-crosextra-carlito fonts-crosextra-caladea hunspell-sv hunspell-en-us
 vncpasswd ~/.vnc/passwd            # the password goes in <stateDir>/desktop.json as vncPassword
 cp desktop-service.sh desktop.sh ~/ && cp tint2rc ~/.config/tint2/
 cp systemd/t3-desktop.service ~/.config/systemd/user/
