@@ -245,7 +245,18 @@ const handler = Effect.gen(function* () {
   if (!STATIC_PATH.test(session.upstreamPath)) {
     return HttpServerResponse.text("Not Found", { status: 404 });
   }
-  return yield* proxyStatic(request, `${config.upstream}${session.upstreamPath}`);
+  return yield* proxyStatic(request, `${config.upstream}${session.upstreamPath}`).pipe(
+    // A stopped viewer would otherwise surface as a bare 500 and a blank panel.
+    Effect.catch(() =>
+      Effect.succeed(
+        HttpServerResponse.text(
+          `Desktop viewer is not running: nothing answered at ${config.upstream}. ` +
+            "On the server, start it with: systemctl --user start t3-desktop",
+          { status: 502 },
+        ),
+      ),
+    ),
+  );
 });
 
 export const layer = HttpRouter.add("*", `${DESKTOP_ROUTE_PREFIX}/*`, handler);
