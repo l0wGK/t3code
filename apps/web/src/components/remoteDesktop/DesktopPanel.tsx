@@ -1,10 +1,13 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { DeviceHubAccess } from "@t3tools/client-runtime/state/deviceHubAccess";
 import { Eye, EyeOff, Keyboard, PictureInPicture2, RotateCw } from "lucide-react";
+import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { refreshDeviceHubAccess, useDeviceHubAccess } from "~/state/device";
@@ -16,12 +19,35 @@ type ThemeAppearance = "light" | "dark";
  * ticket (or cookie) and redirects to a signed session URL; see
  * apps/server/src/desktop/DesktopViewerProxy.ts.
  */
-export function desktopOpenUrl(access: DeviceHubAccess, theme?: ThemeAppearance): string {
-  const url = new URL(access.httpBase.replace(/\/api\/device-hub\/?$/, "/api/desktop/open"));
+export function desktopOpenUrl(
+  access: DeviceHubAccess,
+  theme?: ThemeAppearance,
+  desktop = 0,
+): string {
+  const url = desktopApiUrl(access, "open");
+  if (theme) url.searchParams.set("theme", theme);
+  if (desktop > 0) url.searchParams.set("desktop", String(desktop));
+  return url.toString();
+}
+
+function desktopApiUrl(access: DeviceHubAccess, route: "open" | "list"): URL {
+  const url = new URL(access.httpBase.replace(/\/api\/device-hub\/?$/, `/api/desktop/${route}`));
   const ticket = access.query.wsTicket;
   if (ticket) url.searchParams.set("wsTicket", ticket);
-  if (theme) url.searchParams.set("theme", theme);
-  return url.toString();
+  return url;
+}
+
+/** Names of the server's desktops, in index order; one entry on single-desktop servers. */
+async function fetchDesktopNames(access: DeviceHubAccess): Promise<ReadonlyArray<string>> {
+  const response = await fetch(desktopApiUrl(access, "list"), { credentials: "include" });
+  // Servers from before multi-desktop support have no list route: one desktop.
+  if (!response.ok) return [];
+  const body: unknown = await response.json();
+  const desktops = (body as { desktops?: unknown }).desktops;
+  if (!Array.isArray(desktops)) return [];
+  return desktops.map((desktop, index) =>
+    typeof desktop?.name === "string" ? desktop.name : `Desktop ${index + 1}`,
+  );
 }
 
 const POPOUT_TICKET_REFRESH_MS = 4 * 60_000;
@@ -93,6 +119,15 @@ export function DesktopPanel(props: {
   const [viewOnly, setViewOnly] = useState(false);
   // The theme the frame loaded with; later changes are sent over postMessage.
   const [initialTheme] = useState(resolvedTheme);
+  const [desktopNames, setDesktopNames] = useState<ReadonlyArray<string>>([]);
+  const [storedDesktop, setStoredDesktop] = useLocalStorage(
+    `t3code:desktop-panel:desktop:${props.environmentId}`,
+    0,
+    Schema.Number,
+  );
+  // A remembered desktop the server no longer has falls back to the first.
+  const desktop =
+    desktopNames.length === 0 || storedDesktop < desktopNames.length ? storedDesktop : 0;
 
   useEffect(() => {
     if (staleAccessRef.current !== null) refreshDeviceHubAccess(props.environmentId);
@@ -102,8 +137,13 @@ export function DesktopPanel(props: {
   // The frame keeps the URL it opened with; refreshed tickets only serve pop-outs.
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
-    if (src === null && freshAccess !== null) setSrc(desktopOpenUrl(freshAccess, initialTheme));
-  }, [src, freshAccess, initialTheme]);
+    if (src !== null || freshAccess === null) return;
+    setSrc(desktopOpenUrl(freshAccess, initialTheme, desktop));
+    // Each session re-reads the list, so desktop.json edits show up on reconnect.
+    fetchDesktopNames(freshAccess)
+      .then(setDesktopNames)
+      .catch(() => {});
+  }, [src, freshAccess, initialTheme, desktop]);
 
   // Media tickets last five minutes, and a pop-out must open synchronously from
   // the click (Safari blocks later window.open calls), so keep one fresh.
@@ -118,7 +158,7 @@ export function DesktopPanel(props: {
   const popOut = () => {
     if (freshAccess === null) return;
     window.open(
-      desktopOpenUrl(freshAccess, resolvedTheme),
+      desktopOpenUrl(freshAccess, resolvedTheme, desktop),
       "_blank",
       "popup,width=1280,height=828,noopener,noreferrer",
     );
@@ -131,6 +171,12 @@ export function DesktopPanel(props: {
     setViewer({ status: "connecting" });
     setReloadCount((count) => count + 1);
   }, [access]);
+
+  const switchDesktop = (next: number) => {
+    if (next === desktop) return;
+    setStoredDesktop(next);
+    newSession();
+  };
 
   const send = useCallback((message: Record<string, unknown>) => {
     frameRef.current?.contentWindow?.postMessage({ source: "t3-desktop-panel", ...message }, "*");
@@ -163,6 +209,27 @@ export function DesktopPanel(props: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b px-2.5">
+        {desktopNames.length > 1 ? (
+          <ToggleGroup
+            aria-label="Desktop"
+            className="shrink-0"
+            variant="segmented"
+            value={[String(desktop)]}
+            onValueChange={(value) => {
+              const next = Number(value[0]);
+              if (Number.isInteger(next)) switchDesktop(next);
+            }}
+          >
+            {desktopNames.map((name, index) => (
+              <Tooltip key={index}>
+                <TooltipTrigger render={<Toggle aria-label={name} value={String(index)} />}>
+                  {index + 1}
+                </TooltipTrigger>
+                <TooltipPopup side="bottom">{name}</TooltipPopup>
+              </Tooltip>
+            ))}
+          </ToggleGroup>
+        ) : null}
         <StatusDot status={viewer.status} />
         <span className="shrink-0 text-xs font-medium">
           {viewer.status === "error" && viewer.detail
@@ -199,7 +266,7 @@ export function DesktopPanel(props: {
           <iframe
             ref={frameRef}
             key={reloadCount}
-            title="Server desktop"
+            title={desktopNames[desktop] ?? "Server desktop"}
             src={src}
             className="absolute inset-0 size-full border-0 bg-transparent"
             style={{ colorScheme: resolvedTheme }}

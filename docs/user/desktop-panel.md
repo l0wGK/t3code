@@ -9,6 +9,11 @@ over LAN, Tailscale, and T3 Connect. The VNC server itself stays on loopback. Op
 panel needs operate access to the environment; the server then issues a viewer session
 that lasts eight hours. Choose **Reconnect** after a disconnect or an expired session.
 
+When the server has several desktops, switch between them with the **1 2 3** buttons in the
+panel's toolbar. The panel remembers your choice per environment. Each desktop is separate,
+with its own browser and sign-ins, so agents working at the same time don't get in each other's
+way.
+
 **Pop out** opens the viewer in its own window. **Cmd+V** (Ctrl+V off macOS) pastes your
 clipboard into the desktop, and text you copy there with Cmd/Ctrl+C or X comes back to your
 clipboard. On a Mac, other Cmd shortcuts are sent to the desktop as their Ctrl equivalents.
@@ -33,5 +38,18 @@ Then create `desktop.json` in the server's data directory (`~/.t3/userdata/deskt
 }
 ```
 
-`upstream` defaults to `http://127.0.0.1:6080`. The password is handed to the viewer in the
+`upstream` defaults to `http://127.0.0.1:6080`. For several desktops, run one VNC server and
+`websockify` per desktop and list them instead; the panel shows a switcher:
+
+```json
+{
+  "vncPassword": "your-vnc-password",
+  "desktops": [
+    { "name": "Desktop 1", "upstream": "http://127.0.0.1:6080" },
+    { "name": "Desktop 2", "upstream": "http://127.0.0.1:6081" }
+  ]
+}
+```
+
+The password is handed to the viewer in the
 URL fragment, which is never sent to a server. The file is read on every request.

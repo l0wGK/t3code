@@ -8,13 +8,23 @@
  * `/api/desktop/open` authenticates like other media routes (cookie or
  * `wsTicket`, operate scope), then redirects to a session URL with a signed
  * token in the path: `/api/desktop/s/<token>/vnc.html`. Every request under
- * that prefix carries the token.
+ * that prefix carries the token, and the token names the desktop it opens.
  *
- * Configure with `<stateDir>/desktop.json`:
+ * Configure with `<stateDir>/desktop.json`, either one desktop:
  *
  *   {
  *     "upstream": "http://127.0.0.1:6080",   // websockify --web <novnc dir>
  *     "vncPassword": "..."                     // optional, passed to noVNC
+ *   }
+ *
+ * or several, so agents can each drive their own (`?desktop=<index>` on open):
+ *
+ *   {
+ *     "vncPassword": "...",
+ *     "desktops": [
+ *       { "name": "Desktop 1", "upstream": "http://127.0.0.1:6080" },
+ *       { "name": "Desktop 2", "upstream": "http://127.0.0.1:6081" }
+ *     ]
  *   }
  */
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
@@ -53,10 +63,21 @@ const DEFAULT_UPSTREAM = "http://127.0.0.1:6080";
 const STATIC_PATH = /^\/(?:[\w-]+\/)*[\w.-]+$/;
 const WEBSOCKET_PATH = "/websockify";
 
-export interface DesktopViewerConfig {
+export interface DesktopTarget {
+  readonly name: string;
   readonly upstream: string;
+}
+
+export interface DesktopViewerConfig {
+  readonly desktops: ReadonlyArray<DesktopTarget>;
   readonly vncPassword: string | null;
 }
+
+const readUpstream = (value: unknown): string | null => {
+  const upstream =
+    typeof value === "string" && value.trim() ? value.trim().replace(/\/+$/, "") : DEFAULT_UPSTREAM;
+  return /^https?:\/\//.test(upstream) ? upstream : null;
+};
 
 export function parseDesktopViewerConfig(raw: string): DesktopViewerConfig | null {
   let value: unknown;
@@ -67,40 +88,58 @@ export function parseDesktopViewerConfig(raw: string): DesktopViewerConfig | nul
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const upstream =
-    typeof record.upstream === "string" && record.upstream.trim()
-      ? record.upstream.trim().replace(/\/+$/, "")
-      : DEFAULT_UPSTREAM;
-  if (!/^https?:\/\//.test(upstream)) return null;
   const vncPassword =
     typeof record.vncPassword === "string" && record.vncPassword ? record.vncPassword : null;
-  return { upstream, vncPassword };
+  if (!Array.isArray(record.desktops)) {
+    const upstream = readUpstream(record.upstream);
+    return upstream === null ? null : { desktops: [{ name: "Desktop", upstream }], vncPassword };
+  }
+  const desktops: DesktopTarget[] = [];
+  for (const [index, entry] of record.desktops.entries()) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const desktop = entry as Record<string, unknown>;
+    const upstream = readUpstream(desktop.upstream);
+    if (upstream === null) return null;
+    const name =
+      typeof desktop.name === "string" && desktop.name.trim()
+        ? desktop.name.trim()
+        : `Desktop ${index + 1}`;
+    desktops.push({ name, upstream });
+  }
+  return desktops.length > 0 ? { desktops, vncPassword } : null;
 }
 
-export function makeDesktopSessionToken(nowMs: number, secret: Uint8Array): string {
-  const payload = base64UrlEncode(JSON.stringify({ exp: nowMs + SESSION_TTL_MS }));
+export function makeDesktopSessionToken(nowMs: number, secret: Uint8Array, desktop = 0): string {
+  const payload = base64UrlEncode(JSON.stringify({ exp: nowMs + SESSION_TTL_MS, desktop }));
   return `${payload}.${signPayload(payload, secret)}`;
 }
 
+/** The desktop index a valid session token opens, or null. */
 export function verifyDesktopSessionToken(
   token: string,
   nowMs: number,
   secret: Uint8Array,
-): boolean {
+): number | null {
   const [payload, signature, ...rest] = token.split(".");
-  if (!payload || !signature || rest.length > 0) return false;
-  if (!timingSafeEqualBase64Url(signature, signPayload(payload, secret))) return false;
+  if (!payload || !signature || rest.length > 0) return null;
+  if (!timingSafeEqualBase64Url(signature, signPayload(payload, secret))) return null;
   try {
     const claims: unknown = JSON.parse(base64UrlDecodeUtf8(payload));
-    return (
-      typeof claims === "object" &&
-      claims !== null &&
-      typeof (claims as { exp?: unknown }).exp === "number" &&
-      nowMs < (claims as { exp: number }).exp
-    );
+    if (typeof claims !== "object" || claims === null) return null;
+    const { exp, desktop = 0 } = claims as { exp?: unknown; desktop?: unknown };
+    if (typeof exp !== "number" || nowMs >= exp) return null;
+    return Number.isInteger(desktop) && (desktop as number) >= 0 ? (desktop as number) : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Reads `?desktop=<index>`; absent means the first desktop. */
+export function parseDesktopIndex(value: string | null, count: number): number | null {
+  if (value === null) return 0;
+  if (!/^\d+$/.test(value)) return null;
+  const index = Number(value);
+  return index < count ? index : null;
 }
 
 /**
@@ -218,14 +257,32 @@ const handler = Effect.gen(function* () {
   const nowMs = yield* Clock.currentTimeMillis;
   const pathname = url.value.pathname;
 
+  if (pathname === `${DESKTOP_ROUTE_PREFIX}/list`) {
+    if (request.method !== "GET") {
+      return HttpServerResponse.text("Method Not Allowed", { status: 405 });
+    }
+    yield* authenticateMediaRequest(AuthOrchestrationOperateScope);
+    return HttpServerResponse.jsonUnsafe(
+      { desktops: config.desktops.map(({ name }) => ({ name })) },
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
+
   if (pathname === `${DESKTOP_ROUTE_PREFIX}/open`) {
     if (request.method !== "GET") {
       return HttpServerResponse.text("Method Not Allowed", { status: 405 });
     }
     yield* authenticateMediaRequest(AuthOrchestrationOperateScope);
+    const desktop = parseDesktopIndex(
+      url.value.searchParams.get("desktop"),
+      config.desktops.length,
+    );
+    if (desktop === null) {
+      return HttpServerResponse.text("No such desktop", { status: 404 });
+    }
     return HttpServerResponse.redirect(
       desktopViewerLocation(
-        makeDesktopSessionToken(nowMs, secret),
+        makeDesktopSessionToken(nowMs, secret, desktop),
         config.vncPassword,
         parseTheme(url.value.searchParams.get("theme")),
       ),
@@ -237,8 +294,13 @@ const handler = Effect.gen(function* () {
   if (session === null) {
     return HttpServerResponse.text("Not Found", { status: 404 });
   }
-  if (!verifyDesktopSessionToken(session.token, nowMs, secret)) {
+  const desktopIndex = verifyDesktopSessionToken(session.token, nowMs, secret);
+  if (desktopIndex === null) {
     return HttpServerResponse.text("Desktop session expired", { status: 401 });
+  }
+  const target = config.desktops[desktopIndex];
+  if (target === undefined) {
+    return HttpServerResponse.text("No such desktop", { status: 404 });
   }
   if (isWebSocketUpgrade(request)) {
     if (session.upstreamPath !== WEBSOCKET_PATH) {
@@ -246,7 +308,7 @@ const handler = Effect.gen(function* () {
     }
     return yield* proxyWebSocket(
       request,
-      `${config.upstream.replace(/^http/, "ws")}${WEBSOCKET_PATH}`,
+      `${target.upstream.replace(/^http/, "ws")}${WEBSOCKET_PATH}`,
     );
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -261,13 +323,13 @@ const handler = Effect.gen(function* () {
   if (!STATIC_PATH.test(session.upstreamPath)) {
     return HttpServerResponse.text("Not Found", { status: 404 });
   }
-  return yield* proxyStatic(request, `${config.upstream}${session.upstreamPath}`).pipe(
+  return yield* proxyStatic(request, `${target.upstream}${session.upstreamPath}`).pipe(
     // A stopped viewer would otherwise surface as a bare 500 and a blank panel.
     Effect.catch(() =>
       Effect.succeed(
         HttpServerResponse.text(
-          `Desktop viewer is not running: nothing answered at ${config.upstream}. ` +
-            "On the server, start it with: systemctl --user start t3-desktop",
+          `${target.name} is not running: nothing answered at ${target.upstream}. ` +
+            "On the server, check its service: systemctl --user status 't3-desktop*'",
           { status: 502 },
         ),
       ),

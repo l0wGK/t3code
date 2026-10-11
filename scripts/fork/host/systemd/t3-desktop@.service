@@ -1,0 +1,14 @@
+[Unit]
+Description=Extra virtual GUI desktop %i (TigerVNC Xvnc :%i + noVNC) for agents and the T3 Desktop panel
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/desktop-service.sh %i
+KillMode=control-group
+Restart=on-failure
+RestartSec=5
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
