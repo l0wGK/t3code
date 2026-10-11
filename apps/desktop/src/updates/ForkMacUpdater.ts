@@ -264,8 +264,10 @@ export const make = Effect.sync(() => {
       "Print :CFBundleShortVersionString",
       NodePath.join(appPath, "Contents", "Info.plist"),
     ]);
-    if (stdout.trim() !== release.version) {
-      throw new Error(`The update reports version ${stdout.trim()}, not ${release.version}.`);
+    // CFBundleShortVersionString holds only the numeric core (no `+l0wgk.N`).
+    const expectedCore = release.version.replace(/\+.*$/, "");
+    if (stdout.trim() !== expectedCore) {
+      throw new Error(`The update reports version ${stdout.trim()}, not ${expectedCore}.`);
     }
     staged = { version: release.version, appPath };
     events.emit("update-downloaded", { version: release.version });

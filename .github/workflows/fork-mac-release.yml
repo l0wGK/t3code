@@ -83,8 +83,15 @@ jobs:
           zip="$(find release -maxdepth 1 -name '*.zip' | head -1)"
           [ -n "$zip" ] || { echo "No zip was built." >&2; exit 1; }
           asset="T3-Code-mac-arm64.zip"
-          mkdir -p dist-release
-          cp "$zip" "dist-release/$asset"
+          # Ad-hoc sign the whole bundle: a browser-downloaded unsigned app is
+          # reported as damaged, while an ad-hoc signed one can be opened via
+          # System Settings > Privacy & Security > Open Anyway.
+          rm -rf dist-release && mkdir -p dist-release/app
+          ditto -x -k "$zip" dist-release/app
+          app="$(find dist-release/app -maxdepth 1 -name '*.app' | head -1)"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist-release/$asset"
           sha="$(shasum -a 256 "dist-release/$asset" | awk '{ print $1 }')"
           manifest="$(printf '{"version":"%s","assets":{"arm64":{"name":"%s","sha256":"%s"}}}' "$VERSION" "$asset" "$sha")"
           notes="$(printf 'T3 Code fork %s, built from %s.\n\nInstalled fork apps update to this release from the in-app update button.\n\n<!-- fork-update %s -->' "$VERSION" "${GITHUB_SHA::7}" "$manifest")"
