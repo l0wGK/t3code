@@ -39,7 +39,9 @@ function desktopApiUrl(access: DeviceHubAccess, route: "open" | "list"): URL {
 
 /** Names of the server's desktops, in index order; one entry on single-desktop servers. */
 async function fetchDesktopNames(access: DeviceHubAccess): Promise<ReadonlyArray<string>> {
-  const response = await fetch(desktopApiUrl(access, "list"), { credentials: "include" });
+  // The ticket authenticates; cookies would make cross-origin clients (the desktop
+  // app, app.t3.codes) fail CORS, which only allows uncredentialed requests.
+  const response = await fetch(desktopApiUrl(access, "list"));
   // Servers from before multi-desktop support have no list route: one desktop.
   if (!response.ok) return [];
   const body: unknown = await response.json();
