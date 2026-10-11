@@ -2,7 +2,7 @@
 # Waits until no thread has a turn running, then switches the server runtime with
 # switch-runtime.sh. A restart stops running agents, so deploys wait for a quiet moment.
 #   systemd-run --user --unit=t3-switch-when-idle ~/.t3/runtime/switch-when-idle.sh <target> <fallback> [max-hours]
-# Reads the server database read-only; two idle checks a minute apart count as quiet.
+# Reads the server database read-only; two idle checks 10 seconds apart count as quiet.
 set -euo pipefail
 target="${1:?target version}"
 fallback="${2:?fallback version}"
@@ -28,7 +28,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   if [ "$idle" -ge 2 ]; then
     exec "$HOME/.t3/runtime/switch-runtime.sh" "$target" "$fallback"
   fi
-  sleep 60
+  sleep 10
 done
 echo "gave up waiting for idle; still on the current runtime" >>"$log"
 exit 1
