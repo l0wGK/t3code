@@ -7,6 +7,9 @@
 #
 # The build is unsigned and has no update feed, so it never replaces itself
 # with an official release. Rerun the command to rebuild after fork changes.
+#
+# T3_FORK_SKIP_INSTALL=1 builds without touching /Applications and prints the
+# install command instead, for agents running inside the app being replaced.
 set -euo pipefail
 
 REPO_URL="${T3_FORK_REPO:-https://github.com/l0wGK/t3code.git}"
@@ -94,6 +97,15 @@ APP="$(find release -maxdepth 2 -name '*.app' -type d | head -1)"
 [ -n "$APP" ] || die "Build finished but no .app was found under $SRC/release."
 APP_NAME="$(basename "$APP" .app)"
 TARGET="/Applications/$APP_NAME.app"
+APP_ABS="$SRC/$APP"
+
+if [ "${T3_FORK_SKIP_INSTALL:-0}" = "1" ]; then
+  step "Built $APP_NAME $VERSION (not installed)"
+  echo "App: $APP_ABS"
+  echo "To install, quit $APP_NAME and run:"
+  echo "  bash \"$SRC/scripts/fork/install-mac-app.sh\" \"$APP_ABS\""
+  exit 0
+fi
 
 step "Installing $APP_NAME to /Applications"
 osascript -e "quit app \"$APP_NAME\"" >/dev/null 2>&1 || true
