@@ -1,0 +1,11 @@
+[Desktop Entry]
+# Started with its own D-Bus session, which these desktops lack; mousepad hangs without one.
+# No %F: tint2 aborts (buffer overflow) on this entry with it.
+Type=Application
+Name=Text Editor
+Comment=Edit text files
+Icon=org.xfce.mousepad
+Exec=dbus-run-session -- mousepad
+MimeType=text/plain;
+Terminal=false
+Categories=Utility;TextEditor;

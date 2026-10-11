@@ -1,0 +1,10 @@
+[Desktop Entry]
+# One LibreOffice per desktop (own profile), so documents open on the desktop they were started on.
+Type=Application
+Name=LibreOffice Writer
+Comment=Write documents
+Icon=libreoffice-writer
+Exec=sh -c 'exec soffice -env:UserInstallation="file://$HOME/.config/libreoffice-desktop-${DISPLAY#:}" --writer "$@"' writer %U
+MimeType=application/vnd.oasis.opendocument.text;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/msword;
+Terminal=false
+Categories=Office;WordProcessor;
